@@ -9,3 +9,4 @@ pub mod geoip;
 pub mod login;
 pub mod policy;
 pub mod sites;
+pub mod traffic;

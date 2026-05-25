@@ -1,0 +1,247 @@
+{% extends "layout_default.html" %}
+
+{% block content %}
+
+<!-- ── Filter bar ─────────────────────────────────────────── -->
+<form method="get" action="/traffic" class="form-inline well well-sm" style="margin-bottom:16px">
+    <div class="form-group" style="margin-right:8px">
+        <label class="sr-only">Site</label>
+        <select class="form-control input-sm" name="site">
+            <option value="">All Sites</option>
+            {% for s in sites %}
+            <option value="{{ s.name }}" {% if sel_site == s.name %}selected{% endif %}>{{ s.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group" style="margin-right:8px">
+        <label class="sr-only">Status</label>
+        <select class="form-control input-sm" name="blocked">
+            <option value=""  {% if sel_blocked == "" %}selected{% endif %}>All Traffic</option>
+            <option value="1" {% if sel_blocked == "1" %}selected{% endif %}>Blocked Only</option>
+            <option value="0" {% if sel_blocked == "0" %}selected{% endif %}>Allowed Only</option>
+        </select>
+    </div>
+
+    <div class="form-group" style="margin-right:8px">
+        <label class="sr-only">Time Window</label>
+        <select class="form-control input-sm" name="hours">
+            <option value="1"   {% if sel_hours == 1   %}selected{% endif %}>Last 1 hour</option>
+            <option value="6"   {% if sel_hours == 6   %}selected{% endif %}>Last 6 hours</option>
+            <option value="24"  {% if sel_hours == 24  %}selected{% endif %}>Last 24 hours</option>
+            <option value="48"  {% if sel_hours == 48  %}selected{% endif %}>Last 48 hours</option>
+            <option value="168" {% if sel_hours == 168 %}selected{% endif %}>Last 7 days</option>
+            <option value="720" {% if sel_hours == 720 %}selected{% endif %}>Last 30 days</option>
+        </select>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-sm">
+        <i class="fa fa-filter"></i> Apply
+    </button>
+    <a href="/traffic" class="btn btn-default btn-sm" style="margin-left:4px">
+        <i class="fa fa-times"></i> Reset
+    </a>
+    <button type="button" class="btn btn-default btn-sm" id="btnLive" style="margin-left:4px"
+            onclick="toggleLive(this)">
+        <i class="fa fa-circle" style="color:#ccc"></i> Live
+    </button>
+</form>
+
+<!-- ── Stats cards ────────────────────────────────────────── -->
+<div class="row" style="margin-bottom:16px">
+    <div class="col-sm-3">
+        <div class="panel panel-default text-center" style="padding:14px 0 10px">
+            <div style="font-size:32px;font-weight:bold">{{ stats.total }}</div>
+            <div class="text-muted">Total Requests</div>
+        </div>
+    </div>
+    <div class="col-sm-3">
+        <div class="panel panel-danger text-center" style="padding:14px 0 10px">
+            <div style="font-size:32px;font-weight:bold;color:#c0392b">{{ stats.blocked }}</div>
+            <div class="text-muted">Blocked</div>
+        </div>
+    </div>
+    <div class="col-sm-3">
+        <div class="panel panel-success text-center" style="padding:14px 0 10px">
+            <div style="font-size:32px;font-weight:bold;color:#27ae60">{{ stats.allowed }}</div>
+            <div class="text-muted">Allowed</div>
+        </div>
+    </div>
+    <div class="col-sm-3">
+        <div class="panel panel-info text-center" style="padding:14px 0 10px">
+            <div style="font-size:32px;font-weight:bold;color:#2980b9">{{ stats.avg_response }}<small style="font-size:14px">ms</small></div>
+            <div class="text-muted">Avg Response</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Chart ──────────────────────────────────────────────── -->
+{% if chart %}
+<div class="panel panel-default" style="margin-bottom:20px">
+    <div class="panel-heading">
+        <strong><i class="fa fa-bar-chart"></i> Requests per Hour</strong>
+    </div>
+    <div class="panel-body" style="padding:12px 16px">
+        <canvas id="trafficChart" height="80"></canvas>
+    </div>
+</div>
+{% endif %}
+
+<!-- ── Event table ────────────────────────────────────────── -->
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <strong><i class="fa fa-list"></i> Request Log</strong>
+        <span class="badge pull-right">{{ events | length }}</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-striped table-bordered table-hover table-condensed"
+               id="trafficTable" style="font-size:12px">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Site</th>
+                    <th>Client IP</th>
+                    <th>Method</th>
+                    <th>Host / Path</th>
+                    <th>Status</th>
+                    <th>ms</th>
+                    <th>Country</th>
+                    <th>Verdict</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for e in events %}
+                <tr {% if e.blocked %}class="danger"{% endif %}>
+                    <td style="white-space:nowrap">{{ e.timestamp }}</td>
+                    <td>{{ e.site_name }}</td>
+                    <td><code>{{ e.client_ip }}</code></td>
+                    <td>
+                        {% if e.method == "GET" %}
+                            <span class="label label-success">GET</span>
+                        {% elif e.method == "POST" %}
+                            <span class="label label-primary">POST</span>
+                        {% elif e.method == "DELETE" %}
+                            <span class="label label-danger">DELETE</span>
+                        {% elif e.method == "PUT" %}
+                            <span class="label label-warning">PUT</span>
+                        {% elif e.method == "PATCH" %}
+                            <span class="label label-warning">PATCH</span>
+                        {% else %}
+                            <span class="label label-default">{{ e.method }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                        title="{{ e.host }}{{ e.path }}">
+                        <span class="text-muted">{{ e.host }}</span>{{ e.path }}
+                    </td>
+                    <td>
+                        {% if e.status_code >= 500 %}
+                            <span class="label label-danger">{{ e.status_code }}</span>
+                        {% elif e.status_code >= 400 %}
+                            <span class="label label-warning">{{ e.status_code }}</span>
+                        {% elif e.status_code >= 300 %}
+                            <span class="label label-info">{{ e.status_code }}</span>
+                        {% elif e.status_code >= 200 %}
+                            <span class="label label-success">{{ e.status_code }}</span>
+                        {% else %}
+                            <span class="label label-default">{{ e.status_code }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ e.response_ms }}</td>
+                    <td>{{ e.country | default(value="—") }}</td>
+                    <td>
+                        {% if e.blocked %}
+                            <span class="label label-danger"
+                                  title="{{ e.block_reason | default(value='') }}">
+                                <i class="fa fa-ban"></i> BLOCKED
+                            </span>
+                        {% else %}
+                            <span class="label label-success">
+                                <i class="fa fa-check"></i> PASS
+                            </span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// ── Live-refresh toggle ───────────────────────────────────
+var liveTimer = null;
+function toggleLive(btn) {
+    if (liveTimer) {
+        clearInterval(liveTimer);
+        liveTimer = null;
+        btn.querySelector('i').style.color = '#ccc';
+    } else {
+        liveTimer = setInterval(function () { location.reload(); }, 5000);
+        btn.querySelector('i').style.color = '#c0392b';
+    }
+}
+
+// ── DataTables ────────────────────────────────────────────
+$(document).ready(function () {
+    $('#trafficTable').DataTable({
+        order:     [[0, 'desc']],
+        pageLength: 50,
+        responsive: true,
+        columnDefs: [{ orderable: false, targets: [] }]
+    });
+});
+
+// ── Chart.js bar chart ───────────────────────────────────
+{% if chart %}
+(function () {
+    const raw = {{ chart | tojson }};
+    if (!raw || raw.length === 0) return;
+
+    const labels   = raw.map(function(b) { return b.hour.slice(11, 16); }); // HH:MM
+    const allowed  = raw.map(function(b) { return b.total - b.blocked; });
+    const blocked  = raw.map(function(b) { return b.blocked; });
+
+    new Chart(document.getElementById('trafficChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label:           'Allowed',
+                    data:            allowed,
+                    backgroundColor: 'rgba(39,174,96,0.7)',
+                    borderColor:     'rgba(39,174,96,1)',
+                    borderWidth:     1,
+                },
+                {
+                    label:           'Blocked',
+                    data:            blocked,
+                    backgroundColor: 'rgba(192,57,43,0.7)',
+                    borderColor:     'rgba(192,57,43,1)',
+                    borderWidth:     1,
+                },
+            ]
+        },
+        options: {
+            responsive:        true,
+            interaction:       { mode: 'index', intersect: false },
+            plugins: {
+                legend:  { position: 'top' },
+                tooltip: { mode: 'index' }
+            },
+            scales: {
+                x: { stacked: true },
+                y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }
+            }
+        }
+    });
+}());
+{% endif %}
+</script>
+{% endblock %}

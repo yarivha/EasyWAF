@@ -121,6 +121,7 @@ async fn main() {
         .route("/policy/{name}/update",  post(routes::policy::post_policy_update))
         .route("/policy/{name}/delete",  post(routes::policy::post_policy_delete))
         .route("/geoip",                 get(routes::geoip::get_geoip))
+        .route("/traffic",               get(routes::traffic::get_traffic))
         .nest_service("/static",         ServeDir::new("static"))
         .with_state(gui_state);
 

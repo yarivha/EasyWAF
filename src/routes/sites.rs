@@ -48,7 +48,8 @@ pub struct SiteForm {
     pub name:           Option<String>,
     pub server_name:    String,
     pub target:         String,
-    pub waf_policy_id:  Option<i64>,
+    /// Comes in as "" when "None" is selected, or "123" when a policy is chosen.
+    pub waf_policy_id:  Option<String>,
     pub hsts:           Option<String>,
     pub x_frame:        Option<String>,
     pub x_content_type: Option<String>,
@@ -146,12 +147,13 @@ pub async fn post_site_create(
     let x_frame        = form.x_frame.is_some();
     let x_content_type = form.x_content_type.is_some();
     let xss_protection = form.xss_protection.is_some();
+    let waf_policy_id  = parse_policy_id(&form.waf_policy_id);
 
     sqlx::query!(
         "INSERT INTO sites
          (name, server_name, target, waf_policy_id, hsts, x_frame, x_content_type, xss_protection)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        name, server_name, form.target, form.waf_policy_id,
+        name, server_name, form.target, waf_policy_id,
         hsts, x_frame, x_content_type, xss_protection,
     )
     .execute(&state.db)
@@ -202,6 +204,7 @@ pub async fn post_site_update(
     let x_content_type = form.x_content_type.is_some();
     let xss_protection = form.xss_protection.is_some();
     let server_name    = form.server_name.trim().to_lowercase();
+    let waf_policy_id  = parse_policy_id(&form.waf_policy_id);
 
     sqlx::query!(
         "UPDATE sites SET
@@ -209,7 +212,7 @@ pub async fn post_site_update(
            hsts=?, x_frame=?, x_content_type=?, xss_protection=?,
            updated_at=datetime('now')
          WHERE name=?",
-        server_name, form.target, form.waf_policy_id,
+        server_name, form.target, waf_policy_id,
         hsts, x_frame, x_content_type, xss_protection,
         name,
     )
@@ -302,6 +305,13 @@ async fn fetch_policies(state: &AppState) -> Result<Vec<Policy>> {
         .fetch_all(&state.db)
         .await?;
     Ok(rows.into_iter().map(|r| Policy { id: r.id, name: r.name }).collect())
+}
+
+/// Parse waf_policy_id from the form: empty string → None, numeric string → Some(i64).
+fn parse_policy_id(raw: &Option<String>) -> Option<i64> {
+    raw.as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse().ok())
 }
 
 fn flash_redirect(path: &str, result: &str, msg: &str) -> Result<Response> {

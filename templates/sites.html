@@ -24,10 +24,10 @@
                     <tr>
                         <th></th>
                         <th>Site Name</th>
-                        <th>Server Name</th>
-                        <th>Target</th>
-                        <th>Port</th>
+                        <th>Hostname</th>
+                        <th>Upstream Target</th>
                         <th>WAF Policy</th>
+                        <th>Status</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -42,8 +42,20 @@
                         <td><a href="/sites/{{ site.name }}/edit">{{ site.name }}</a></td>
                         <td>{{ site.server_name }}</td>
                         <td>{{ site.target }}</td>
-                        <td>{{ site.port }}</td>
-                        <td>{{ site.waf_policy | default(value="None") }}</td>
+                        <td>
+                            {% if site.waf_policy_id %}
+                                <span class="label label-info"><i class="fa fa-shield"></i> Protected</span>
+                            {% else %}
+                                <span class="text-muted">None</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if site.enabled %}
+                                <span class="label label-success">Active</span>
+                            {% else %}
+                                <span class="label label-default">Disabled</span>
+                            {% endif %}
+                        </td>
                         <td>
                             <form method="post" action="/sites/{{ site.name }}/delete"
                                   onsubmit="return confirm('Delete site {{ site.name }}?');"

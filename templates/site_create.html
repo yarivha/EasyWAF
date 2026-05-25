@@ -9,31 +9,26 @@
                 <form method="post" action="/sites/create">
 
                     <div class="form-group">
-                        <label>Site Name <small class="text-muted">(used as nginx conf filename)</small></label>
+                        <label>Site Name <small class="text-muted">(friendly label)</small></label>
                         <input type="text" class="form-control" name="name" placeholder="mysite" required>
                     </div>
 
                     <div class="form-group">
-                        <label>Server Name <small class="text-muted">(hostname / virtual host)</small></label>
-                        <input type="text" class="form-control" name="server" placeholder="example.com" required>
+                        <label>Hostname <small class="text-muted">(routes requests by Host: header)</small></label>
+                        <input type="text" class="form-control" name="server_name" placeholder="example.com" required>
                     </div>
 
                     <div class="form-group">
-                        <label>Target (proxy_pass)</label>
+                        <label>Upstream Target</label>
                         <input type="text" class="form-control" name="target" placeholder="http://127.0.0.1:3000" required>
                     </div>
 
                     <div class="form-group">
-                        <label>Listen Port</label>
-                        <input type="number" class="form-control" name="port" value="80" required>
-                    </div>
-
-                    <div class="form-group">
                         <label>WAF Policy</label>
-                        <select class="form-control" name="policy">
+                        <select class="form-control" name="waf_policy_id">
                             <option value="">None</option>
                             {% for p in policies %}
-                            <option value="{{ p }}">{{ p }}</option>
+                            <option value="{{ p.id }}">{{ p.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
