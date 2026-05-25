@@ -170,6 +170,9 @@ pub async fn post_site_create(
     .execute(&state.db)
     .await?;
 
+    // Signal the proxy to bind this port if it isn't already listening on it.
+    let _ = state.port_tx.send(listen_port as u16).await;
+
     flash_redirect("/sites", "success", &format!("Site {} created successfully", name))
 }
 
@@ -234,6 +237,10 @@ pub async fn post_site_update(
     )
     .execute(&state.db)
     .await?;
+
+    // Signal the proxy to bind the (possibly new) port without a restart.
+    // The proxy ignores this if the port is already bound.
+    let _ = state.port_tx.send(listen_port as u16).await;
 
     flash_redirect("/sites", "success", &format!("Site {} updated successfully", name))
 }

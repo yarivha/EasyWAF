@@ -8,6 +8,16 @@ Version bumps and tags are created only after explicit approval.
 
 ## [Unreleased]
 
+### Added
+- **Dynamic port binding** — adding or editing a site with a new `listen_port`
+  now opens that TCP listener immediately without restarting EasyWAF.
+  - `AppState` gains a `port_tx: mpsc::Sender<u16>` channel to the proxy
+  - `proxy::start()` accepts `mpsc::Receiver<u16>` and loops on it forever;
+    each received port is bound if not already in the `bound` HashSet
+  - `post_site_create` and `post_site_update` send the port after saving to DB
+  - Bind failures log an error instead of panicking, so a bad port number
+    cannot crash the whole process
+
 ### Changed
 - Fixed all 8 compiler warnings — build is now warning-free:
   - `certs.rs`: removed unused `AppError` import

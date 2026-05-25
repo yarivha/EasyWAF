@@ -27,8 +27,8 @@ use axum::{
 };
 use reqwest::Client;
 use sqlx::SqlitePool;
-use std::{net::SocketAddr, sync::Arc, time::Instant};
-use tokio::net::TcpListener;
+use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Instant};
+use tokio::{net::TcpListener, sync::mpsc};
 
 // ─── Hop-by-hop headers ──────────────────────────────────
 
@@ -71,35 +71,49 @@ struct SiteRow {
 
 // ─── start ───────────────────────────────────────────────
 
-/// Read all unique listen_port values from enabled sites and start one
-/// Axum TCP listener for each port. Runs until all listeners exit
-/// (which is never under normal operation).
-pub async fn start(state: ProxyState) {
-    // Collect distinct ports from every enabled site.
-    let ports = get_listen_ports(&state.db).await;
+/// Bind all ports that exist in the DB now, then wait for new port numbers
+/// sent over `port_rx` and bind those on the fly — no restart needed.
+///
+/// Already-bound ports are tracked in a local HashSet and silently ignored
+/// when sent again (e.g. when a site's non-port fields are updated).
+pub async fn start(state: ProxyState, mut port_rx: mpsc::Receiver<u16>) {
+    // Track which ports we have already spawned a listener for.
+    let mut bound: HashSet<u16> = HashSet::new();
 
-    if ports.is_empty() {
+    // Bind every port that is configured in the DB at startup.
+    let initial_ports = get_listen_ports(&state.db).await;
+    if initial_ports.is_empty() {
         tracing::warn!(
-            "No enabled sites found — proxy is not listening on any port. \
-             Add a site and restart to begin proxying."
+            "No enabled sites found at startup — proxy is not listening on any port. \
+             Create a site in the GUI to begin proxying."
         );
-        return;
+    }
+    for port in initial_ports {
+        if bound.insert(port) {
+            spawn_listener(state.clone(), port);
+        }
     }
 
-    // Spawn a dedicated listener task for each unique port.
-    let mut handles = Vec::new();
-    for port in ports {
-        let state_clone = state.clone();
-        let handle = tokio::spawn(async move {
-            start_on_port(state_clone, port).await;
-        });
-        handles.push(handle);
+    // Wait for new ports sent by the GUI (site create / update).
+    // The loop runs for the lifetime of the process because AppState holds
+    // a Sender, so the channel is never closed until the process exits.
+    while let Some(port) = port_rx.recv().await {
+        if bound.insert(port) {
+            tracing::info!(port, "Dynamically binding new proxy listener");
+            spawn_listener(state.clone(), port);
+        } else {
+            tracing::debug!(port, "Port already bound — ignoring signal");
+        }
     }
+}
 
-    // Wait for all listener tasks. In normal operation they run forever.
-    for handle in handles {
-        let _ = handle.await;
-    }
+// ─── spawn_listener ──────────────────────────────────────
+
+/// Spawn a background task that binds `port` and serves forever.
+fn spawn_listener(state: ProxyState, port: u16) {
+    tokio::spawn(async move {
+        start_on_port(state, port).await;
+    });
 }
 
 // ─── get_listen_ports ────────────────────────────────────
@@ -135,12 +149,18 @@ async fn get_listen_ports(db: &SqlitePool) -> Vec<u16> {
 
 /// Bind a TCP listener on the given port and serve requests forever.
 /// Each port gets its own Axum Router but shares the same ProxyState.
+/// Logs an error and returns (rather than panicking) if the bind fails,
+/// so a misconfigured port does not crash the whole process.
 async fn start_on_port(state: ProxyState, port: u16) {
     let addr = format!("0.0.0.0:{}", port);
 
-    let listener = TcpListener::bind(&addr)
-        .await
-        .unwrap_or_else(|e| panic!("Cannot bind proxy to {}: {}", addr, e));
+    let listener = match TcpListener::bind(&addr).await {
+        Ok(l)  => l,
+        Err(e) => {
+            tracing::error!(port, "Failed to bind proxy port: {}", e);
+            return;
+        }
+    };
 
     tracing::info!("Proxy listening on http://{}", addr);
 

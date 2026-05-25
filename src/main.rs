@@ -2,8 +2,9 @@
 // main.rs — EasyWAF
 // Entry point. Starts two servers in the same process:
 //   • Management GUI — configured gui_port (default 8080)
-//   • HTTP proxy     — one listener per unique listen_port
-//                      found across all enabled sites in the DB
+//   • HTTP proxy     — one listener per unique listen_port;
+//                      new ports can be added at runtime via
+//                      AppState::port_tx without restarting.
 // Both share the SQLite pool and module pipeline.
 // =========================================================
 
@@ -26,6 +27,7 @@ use modules::{traffic::TrafficLogger, Pipeline};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tera::Tera;
+use tokio::sync::mpsc;
 use tower_http::services::ServeDir;
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -35,10 +37,13 @@ use tracing_subscriber::{fmt, EnvFilter};
 /// Shared state for the management GUI handlers.
 #[derive(Clone)]
 pub struct AppState {
-    pub db:     SqlitePool,
-    pub tera:   Arc<Tera>,
-    pub config: Arc<config::Config>,
-    pub key:    Key,
+    pub db:       SqlitePool,
+    pub tera:     Arc<Tera>,
+    pub config:   Arc<config::Config>,
+    pub key:      Key,
+    /// Send a port number here to make the proxy bind a new listener at
+    /// runtime — no restart needed. The proxy ignores already-bound ports.
+    pub port_tx:  mpsc::Sender<u16>,
 }
 
 /// Required so SignedCookieJar can extract the Key from AppState.
@@ -65,8 +70,8 @@ async fn main() {
 
     // ── Build module pipeline ─────────────────────────────
     // Modules run in order for every proxied request.
-    // Traffic logger always passes; it is used by the proxy
-    // handler directly for fire-and-forget DB writes.
+    // TrafficLogger always returns Pass; the proxy handler
+    // writes the actual DB row via log_event().
     let mut pipeline = Pipeline::new();
     pipeline.add(TrafficLogger::new(db.clone()));
     let pipeline = Arc::new(pipeline);
@@ -78,16 +83,18 @@ async fn main() {
         .build()
         .expect("reqwest client");
 
+    // ── Channel: GUI → proxy for dynamic port binding ─────
+    // Buffer of 32 is plenty — port changes are infrequent.
+    let (port_tx, port_rx) = mpsc::channel::<u16>(32);
+
     // ── Start proxy server (background task) ──────────────
     let proxy_state = proxy::ProxyState {
         db:       db.clone(),
         pipeline: pipeline.clone(),
         client,
     };
-    // Proxy reads listen_port from each enabled site's DB row at startup.
-    // To pick up a new port after adding/editing a site, restart the process.
     tokio::spawn(async move {
-        proxy::start(proxy_state).await;
+        proxy::start(proxy_state, port_rx).await;
     });
 
     // ── Build management GUI ──────────────────────────────
@@ -96,10 +103,11 @@ async fn main() {
     let key = make_key(&cfg.secret);
 
     let gui_state = AppState {
-        db:     db.clone(),
-        tera:   Arc::new(tera),
-        config: Arc::new(cfg.clone()),
+        db:      db.clone(),
+        tera:    Arc::new(tera),
+        config:  Arc::new(cfg.clone()),
         key,
+        port_tx,
     };
 
     let app = Router::new()
@@ -138,6 +146,8 @@ async fn main() {
 
 // ─── seed_admin ──────────────────────────────────────────
 
+/// Insert a default admin/admin account if no users exist yet.
+/// Logs a warning so the operator knows to change the password.
 async fn seed_admin(db: &SqlitePool) {
     let count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM users")
         .fetch_one(db)
