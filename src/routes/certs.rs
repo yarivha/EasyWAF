@@ -1,16 +1,11 @@
 // =========================================================
 // routes/certs.rs — EasyWAF
-// Certificate management: list, upload, delete.
-// Cert and key files are written to nginx.cert_dir.
-// Metadata (domain, dates) is extracted via openssl and stored in DB.
+// Certificate management.
+// Cert and key PEM are stored directly in the database —
+// no filesystem involvement.
 // =========================================================
 
-use crate::{
-    auth::get_session,
-    error::{AppError, Result},
-    nginx::openssl_cert_info,
-    AppState,
-};
+use crate::{auth::get_session, error::{AppError, Result}, AppState};
 use axum::{
     extract::{Path, Query, State},
     response::{Html, IntoResponse, Redirect, Response},
@@ -18,38 +13,36 @@ use axum::{
 };
 use axum_extra::extract::cookie::SignedCookieJar;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use tera::Context;
 
 // ─── Models ──────────────────────────────────────────────
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 pub struct Cert {
-    pub id: i64,
-    pub name: String,
-    pub domain: Option<String>,
+    pub id:         i64,
+    pub name:       String,
+    pub domain:     Option<String>,
     pub not_before: Option<String>,
-    pub not_after: Option<String>,
+    pub not_after:  Option<String>,
 }
 
 // ─── Forms ───────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct CertForm {
-    pub name: String,
-    pub cert: String,
-    pub key: String,
+    pub name:     String,
+    pub cert_pem: String,
+    pub key_pem:  String,
 }
 
 #[derive(Deserialize)]
 pub struct FlashQuery {
     pub result: Option<String>,
-    pub msg: Option<String>,
+    pub msg:    Option<String>,
 }
 
 // ─── get_certs ───────────────────────────────────────────
 
-/// GET /certs — List all certificates.
 pub async fn get_certs(
     State(state): State<AppState>,
     jar: SignedCookieJar,
@@ -57,52 +50,43 @@ pub async fn get_certs(
 ) -> Result<Response> {
     let session = match get_session(&jar) {
         Some(s) => s,
-        None => return Ok(Redirect::to("/login").into_response()),
+        None    => return Ok(Redirect::to("/login").into_response()),
     };
 
-    let certs = sqlx::query_as!(
-        Cert,
-        "SELECT id as \"id!\", name, domain, not_before, not_after FROM certs ORDER BY name"
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let certs = fetch_certs(&state).await?;
 
     let mut ctx = Context::new();
     ctx.insert("username", &session.username);
-    ctx.insert("title", "Certificate Management");
-    ctx.insert("url", "/certs");
-    ctx.insert("certs", &certs);
-    ctx.insert("result", &flash.result.unwrap_or_default());
-    ctx.insert("msg", &flash.msg.unwrap_or_default());
+    ctx.insert("title",    "Certificate Management");
+    ctx.insert("url",      "/certs");
+    ctx.insert("certs",    &certs);
+    ctx.insert("result",   &flash.result.unwrap_or_default());
+    ctx.insert("msg",      &flash.msg.unwrap_or_default());
 
-    let html = state.tera.render("certs.html", &ctx)?;
-    Ok((jar, Html(html)).into_response())
+    Ok((jar, Html(state.tera.render("certs.html", &ctx)?)).into_response())
 }
 
 // ─── get_cert_new ────────────────────────────────────────
 
-/// GET /certs/new — Show the upload-cert form.
 pub async fn get_cert_new(
     State(state): State<AppState>,
     jar: SignedCookieJar,
 ) -> Result<Response> {
     let session = match get_session(&jar) {
         Some(s) => s,
-        None => return Ok(Redirect::to("/login").into_response()),
+        None    => return Ok(Redirect::to("/login").into_response()),
     };
 
     let mut ctx = Context::new();
     ctx.insert("username", &session.username);
-    ctx.insert("title", "Upload Certificate");
-    ctx.insert("url", "/certs");
+    ctx.insert("title",    "Upload Certificate");
+    ctx.insert("url",      "/certs");
 
-    let html = state.tera.render("cert_create.html", &ctx)?;
-    Ok((jar, Html(html)).into_response())
+    Ok((jar, Html(state.tera.render("cert_create.html", &ctx)?)).into_response())
 }
 
 // ─── post_cert_create ────────────────────────────────────
 
-/// POST /certs/create — Write cert + key files and store metadata in DB.
 pub async fn post_cert_create(
     State(state): State<AppState>,
     jar: SignedCookieJar,
@@ -114,38 +98,25 @@ pub async fn post_cert_create(
 
     let name = form.name.trim().to_string();
     if name.is_empty() {
-        return Ok(Redirect::to("/certs?result=failed&msg=Certificate+name+is+required").into_response());
+        return flash_redirect("/certs", "failed", "Certificate name is required");
     }
 
-    // Ensure cert directory exists.
-    fs::create_dir_all(&state.config.nginx.cert_dir).map_err(AppError::Io)?;
-
-    let cert_path = format!("{}/{}.cert", state.config.nginx.cert_dir, name);
-    let key_path = format!("{}/{}.key", state.config.nginx.cert_dir, name);
-
-    fs::write(&cert_path, form.cert.as_bytes()).map_err(AppError::Io)?;
-    fs::write(&key_path, form.key.as_bytes()).map_err(AppError::Io)?;
-
-    // Extract metadata from the cert file.
-    let (domain_raw, not_before_raw, not_after_raw) = openssl_cert_info(&cert_path);
-    let domain = parse_openssl_field(&domain_raw, "CN");
-    let not_before = trim_openssl_date(&not_before_raw, "notBefore=");
-    let not_after = trim_openssl_date(&not_after_raw, "notAfter=");
+    // Parse the certificate to extract metadata.
+    let (domain, not_before, not_after) = parse_cert_pem(&form.cert_pem);
 
     sqlx::query!(
-        "INSERT OR REPLACE INTO certs (name, domain, not_before, not_after) VALUES (?, ?, ?, ?)",
-        name, domain, not_before, not_after
+        "INSERT OR REPLACE INTO certs (name, domain, not_before, not_after, cert_pem, key_pem)
+         VALUES (?, ?, ?, ?, ?, ?)",
+        name, domain, not_before, not_after, form.cert_pem, form.key_pem,
     )
     .execute(&state.db)
     .await?;
 
-    let msg = urlencoding::encode(&format!("Certificate {} saved successfully", name)).into_owned();
-    Ok(Redirect::to(&format!("/certs?result=success&msg={}", msg)).into_response())
+    flash_redirect("/certs", "success", &format!("Certificate {} saved successfully", name))
 }
 
 // ─── post_cert_delete ────────────────────────────────────
 
-/// POST /certs/:name/delete — Remove cert + key files and DB row.
 pub async fn post_cert_delete(
     State(state): State<AppState>,
     jar: SignedCookieJar,
@@ -155,32 +126,68 @@ pub async fn post_cert_delete(
         return Ok(Redirect::to("/login").into_response());
     }
 
-    let _ = fs::remove_file(format!("{}/{}.cert", state.config.nginx.cert_dir, name));
-    let _ = fs::remove_file(format!("{}/{}.key", state.config.nginx.cert_dir, name));
-
     sqlx::query!("DELETE FROM certs WHERE name = ?", name)
         .execute(&state.db)
         .await?;
 
-    let msg = urlencoding::encode(&format!("Certificate {} deleted successfully", name)).into_owned();
-    Ok(Redirect::to(&format!("/certs?result=success&msg={}", msg)).into_response())
+    flash_redirect("/certs", "success", &format!("Certificate {} deleted successfully", name))
 }
 
 // ─── Helpers ─────────────────────────────────────────────
 
-/// Extract a field value from openssl subject output, e.g. "CN=example.com".
-fn parse_openssl_field(subject: &str, field: &str) -> Option<String> {
-    subject
-        .split(", ")
-        .find(|s| s.starts_with(&format!("{}=", field)))
-        .map(|s| s[field.len() + 1..].to_string())
+async fn fetch_certs(state: &AppState) -> Result<Vec<Cert>> {
+    let rows = sqlx::query!(
+        "SELECT id as \"id!\", name, domain, not_before, not_after
+         FROM certs ORDER BY name"
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(rows.into_iter().map(|r| Cert {
+        id:         r.id,
+        name:       r.name,
+        domain:     r.domain,
+        not_before: r.not_before,
+        not_after:  r.not_after,
+    }).collect())
 }
 
-/// Strip the label prefix from an openssl date line, e.g. "notBefore=Jun 1 ...".
-fn trim_openssl_date(line: &str, prefix: &str) -> Option<String> {
-    if line.starts_with(prefix) {
-        Some(line[prefix.len()..].trim().to_string())
-    } else {
-        None
-    }
+/// Best-effort extraction of domain/dates from a PEM certificate using openssl CLI.
+/// Returns (domain, not_before, not_after) — any field may be None on failure.
+fn parse_cert_pem(pem: &str) -> (Option<String>, Option<String>, Option<String>) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let run = |args: &[&str]| -> Option<String> {
+        let mut child = Command::new("openssl")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        child.stdin.as_mut()?.write_all(pem.as_bytes()).ok()?;
+        let out = child.wait_with_output().ok()?;
+        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+
+    let domain = run(&["x509", "-noout", "-subject", "-in", "/dev/stdin"])
+        .and_then(|s| {
+            s.split(", ")
+                .find(|f| f.starts_with("CN="))
+                .map(|f| f[3..].to_string())
+        });
+
+    let not_before = run(&["x509", "-noout", "-startdate", "-in", "/dev/stdin"])
+        .map(|s| s.trim_start_matches("notBefore=").to_string());
+
+    let not_after = run(&["x509", "-noout", "-enddate", "-in", "/dev/stdin"])
+        .map(|s| s.trim_start_matches("notAfter=").to_string());
+
+    (domain, not_before, not_after)
+}
+
+fn flash_redirect(path: &str, result: &str, msg: &str) -> Result<Response> {
+    let msg_enc = urlencoding::encode(msg).into_owned();
+    Ok(Redirect::to(&format!("{}?result={}&msg={}", path, result, msg_enc)).into_response())
 }

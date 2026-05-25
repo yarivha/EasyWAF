@@ -1,14 +1,10 @@
 # EasyWAF Configuration
 
-host = "0.0.0.0"
-port = 8080
-secret = "change-this-to-a-random-secret-before-production"
+secret       = "change-this-to-a-random-secret-before-production"
 database_url = "sqlite://easywaf.db"
 
-[nginx]
-site_dir    = "/etc/nginx/conf.d"
-cert_dir    = "/etc/nginx/certs"
-policy_dir  = "/etc/nginx/naxsi"
-rules_dir   = "/usr/share/owasp-modsecurity-crs/rules"
-log_dir     = "/var/log/nginx"
-reload_cmd  = "sudo systemctl restart nginx"
+[proxy]
+http_port  = 8081        # HTTP reverse proxy port (use 80 in production)
+gui_port   = 8080        # Management GUI port
+geoip_db   = ""          # Path to GeoLite2-Country.mmdb (leave empty to disable)
+acme_webroot = ""        # Path for ACME HTTP-01 challenge files
