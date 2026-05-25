@@ -8,6 +8,11 @@ Version bumps and tags are created only after explicit approval.
 
 ## [Unreleased]
 
+### Fixed
+- `traffic.html` — `tojson` filter does not exist in Tera 1.20.1; replaced
+  with the correct built-in filter name `json_encode` (caused "Failed to
+  render 'traffic.html'" on every visit to the Traffic Monitor page)
+
 ### Added
 - **Per-site `listen_port`** — each virtual host now has its own TCP port
   configured in Site Settings (default 80). The proxy binds one listener
