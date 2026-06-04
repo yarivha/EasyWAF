@@ -56,6 +56,16 @@ pub struct RuleForm {
     pub action:      String,
 }
 
+/// Form submitted by the bulk-action bar.
+/// `ids` is a list of rule IDs (one per checked checkbox).
+/// `bulk_action` is one of: "enable", "disable", "delete".
+#[derive(Deserialize)]
+pub struct BulkForm {
+    #[serde(default)]
+    pub ids:         Vec<i64>,
+    pub bulk_action: String,
+}
+
 // ─── get_rules ───────────────────────────────────────────
 
 /// List all rules for a policy, with summary counts.
@@ -234,6 +244,57 @@ pub async fn post_seed_rules(
     seed_default_rules(&state, policy_id).await?;
 
     Ok(Redirect::to(&format!("/policy/{}/rules", policy_name)).into_response())
+}
+
+// ─── post_bulk_rules ─────────────────────────────────────
+
+/// Handle the bulk-action form: enable, disable, or delete a set of rules
+/// identified by their IDs. Silently ignores empty ID lists.
+pub async fn post_bulk_rules(
+    State(state): State<AppState>,
+    jar: SignedCookieJar,
+    Path(policy_name): Path<String>,
+    Form(form): Form<BulkForm>,
+) -> Result<Response> {
+    if get_session(&jar).is_none() {
+        return Ok(Redirect::to("/login").into_response());
+    }
+
+    let redirect = format!("/policy/{}/rules", policy_name);
+
+    // Nothing selected — just redirect back without doing anything.
+    if form.ids.is_empty() {
+        return Ok(Redirect::to(&redirect).into_response());
+    }
+
+    match form.bulk_action.as_str() {
+        "enable" => {
+            for id in &form.ids {
+                sqlx::query!("UPDATE waf_rules SET enabled = 1 WHERE id = ?", id)
+                    .execute(&state.db)
+                    .await?;
+            }
+        }
+        "disable" => {
+            for id in &form.ids {
+                sqlx::query!("UPDATE waf_rules SET enabled = 0 WHERE id = ?", id)
+                    .execute(&state.db)
+                    .await?;
+            }
+        }
+        "delete" => {
+            for id in &form.ids {
+                sqlx::query!("DELETE FROM waf_rules WHERE id = ?", id)
+                    .execute(&state.db)
+                    .await?;
+            }
+        }
+        other => {
+            tracing::warn!(action = other, "Unknown bulk action — ignored");
+        }
+    }
+
+    Ok(Redirect::to(&redirect).into_response())
 }
 
 // ─── DB helpers ──────────────────────────────────────────

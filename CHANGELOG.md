@@ -8,6 +8,16 @@ Version bumps and tags are created only after explicit approval.
 
 ## [Unreleased]
 
+### Added
+- **Bulk rule selection** on the Rules Manager page:
+  - Checkbox column on every row + "select all" header checkbox
+  - Bulk action bar appears when one or more rules are selected,
+    showing the count and three buttons: Enable, Disable, Delete
+  - `POST /policy/{name}/rules/bulk` route accepts a list of rule IDs
+    and a `bulk_action` (enable / disable / delete)
+  - Delete action requires a JS confirmation before submitting
+  - Per-row toggle and delete buttons kept alongside for quick single-rule edits
+
 ### Fixed
 - `policy_create.html` — removed stale "No OWASP CRS rule files found"
   message left over from the Perl era; replaced with a clean form that

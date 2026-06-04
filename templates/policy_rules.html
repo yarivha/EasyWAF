@@ -2,7 +2,7 @@
 
 {% block content %}
 
-<!-- ── Breadcrumb / header bar ────────────────────────────── -->
+<!-- ── Top toolbar ────────────────────────────────────────── -->
 <div class="row" style="margin-bottom:10px">
     <div class="col-sm-8">
         <a href="/policy/{{ policy.name }}/rules/new" class="btn btn-success btn-sm">
@@ -67,99 +67,165 @@
     </div>
 </div>
 
-<!-- ── Rules table ────────────────────────────────────────── -->
-<div class="panel panel-default">
-    <div class="panel-heading">
-        <strong><i class="fa fa-shield"></i> Rules — {{ policy.name }}</strong>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-striped table-bordered table-condensed"
-               id="rulesTable" style="font-size:12px">
-            <thead>
-                <tr>
-                    <th style="width:30px">#</th>
-                    <th>Name</th>
-                    <th style="width:80px">Zone</th>
-                    <th>Pattern</th>
-                    <th style="width:60px">Score</th>
-                    <th style="width:70px">Action</th>
-                    <th style="width:80px">Status</th>
-                    <th style="width:100px">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for r in rules %}
-                <tr {% if not r.enabled %}class="text-muted"{% endif %}>
-                    <td>{{ r.id }}</td>
-                    <td>
-                        <strong>{{ r.name }}</strong>
-                        {% if r.description %}
-                        <br><small class="text-muted">{{ r.description }}</small>
-                        {% endif %}
-                    </td>
-                    <td><span class="label label-default">{{ r.zone }}</span></td>
-                    <td><code style="font-size:11px;word-break:break-all">{{ r.pattern }}</code></td>
-                    <td class="text-center">
-                        {% if r.action == "block" %}
-                            <span class="label label-danger">BLOCK</span>
-                        {% else %}
-                            <span class="label label-warning">+{{ r.score }}</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">
-                        {% if r.action == "block" %}
-                            <span class="label label-danger">instant block</span>
-                        {% else %}
-                            <span class="label label-info">score</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">
-                        {% if r.enabled %}
-                            <span class="label label-success">enabled</span>
-                        {% else %}
-                            <span class="label label-default">disabled</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center" style="white-space:nowrap">
-                        <!-- Toggle enable/disable -->
-                        <form method="post"
-                              action="/policy/{{ policy.name }}/rules/{{ r.id }}/toggle"
-                              style="display:inline">
-                            <button type="submit" class="btn btn-xs btn-default"
-                                    title="{% if r.enabled %}Disable{% else %}Enable{% endif %}">
+<!-- ── Bulk-action form wraps the table ───────────────────── -->
+<form method="post" action="/policy/{{ policy.name }}/rules/bulk" id="bulkForm">
+    <!-- Hidden action field — set by whichever bulk button is clicked -->
+    <input type="hidden" name="bulk_action" id="bulkAction" value="">
+
+    <div class="panel panel-default">
+        <div class="panel-heading" style="display:flex;align-items:center;justify-content:space-between">
+            <strong><i class="fa fa-shield"></i> Rules — {{ policy.name }}</strong>
+
+            <!-- Bulk action bar — hidden until at least one row is checked -->
+            <div id="bulkBar" style="display:none">
+                <span id="selCount" class="text-muted" style="font-size:12px;margin-right:8px">
+                    0 selected
+                </span>
+                <button type="button" class="btn btn-xs btn-success" onclick="submitBulk('enable')">
+                    <i class="fa fa-play"></i> Enable
+                </button>
+                <button type="button" class="btn btn-xs btn-default" style="margin-left:4px"
+                        onclick="submitBulk('disable')">
+                    <i class="fa fa-pause"></i> Disable
+                </button>
+                <button type="button" class="btn btn-xs btn-danger" style="margin-left:4px"
+                        onclick="submitBulk('delete')">
+                    <i class="fa fa-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-condensed"
+                   id="rulesTable" style="font-size:12px">
+                <thead>
+                    <tr>
+                        <!-- Select-all checkbox -->
+                        <th style="width:34px;text-align:center">
+                            <input type="checkbox" id="chkAll" title="Select all">
+                        </th>
+                        <th style="width:20px">#</th>
+                        <th>Name</th>
+                        <th style="width:80px">Zone</th>
+                        <th>Pattern</th>
+                        <th style="width:60px">Score</th>
+                        <th style="width:80px">Status</th>
+                        <th style="width:80px">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for r in rules %}
+                    <tr {% if not r.enabled %}class="text-muted"{% endif %}>
+                        <td class="text-center">
+                            <input type="checkbox" name="ids" value="{{ r.id }}" class="rule-chk">
+                        </td>
+                        <td class="text-muted">{{ r.id }}</td>
+                        <td>
+                            <strong>{{ r.name }}</strong>
+                            {% if r.description %}
+                            <br><small class="text-muted">{{ r.description }}</small>
+                            {% endif %}
+                        </td>
+                        <td><span class="label label-default">{{ r.zone }}</span></td>
+                        <td><code style="font-size:11px;word-break:break-all">{{ r.pattern }}</code></td>
+                        <td class="text-center">
+                            {% if r.action == "block" %}
+                                <span class="label label-danger">BLOCK</span>
+                            {% else %}
+                                <span class="label label-warning">+{{ r.score }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if r.enabled %}
+                                <span class="label label-success">enabled</span>
+                            {% else %}
+                                <span class="label label-default">disabled</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center" style="white-space:nowrap">
+                            <!-- Per-row toggle -->
+                            <a href="/policy/{{ policy.name }}/rules/{{ r.id }}/toggle"
+                               class="btn btn-xs btn-default"
+                               title="{% if r.enabled %}Disable{% else %}Enable{% endif %}"
+                               onclick="event.preventDefault(); document.getElementById('toggleForm{{ r.id }}').submit();">
                                 {% if r.enabled %}
                                     <i class="fa fa-pause"></i>
                                 {% else %}
                                     <i class="fa fa-play"></i>
                                 {% endif %}
-                            </button>
-                        </form>
-                        <!-- Delete -->
-                        <form method="post"
-                              action="/policy/{{ policy.name }}/rules/{{ r.id }}/delete"
-                              style="display:inline"
-                              onsubmit="return confirm('Delete rule {{ r.name }}?');">
-                            <button type="submit" class="btn btn-xs btn-danger" title="Delete">
+                            </a>
+                            <form id="toggleForm{{ r.id }}" method="post"
+                                  action="/policy/{{ policy.name }}/rules/{{ r.id }}/toggle"
+                                  style="display:none"></form>
+                            <!-- Per-row delete -->
+                            <a href="#" class="btn btn-xs btn-danger" title="Delete"
+                               onclick="event.preventDefault();
+                                        if(confirm('Delete rule {{ r.name }}?'))
+                                          document.getElementById('delForm{{ r.id }}').submit();">
                                 <i class="fa fa-trash"></i>
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+                            </a>
+                            <form id="delForm{{ r.id }}" method="post"
+                                  action="/policy/{{ policy.name }}/rules/{{ r.id }}/delete"
+                                  style="display:none"></form>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
-</div>
+</form>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
+// ── Select-all checkbox ───────────────────────────────────
+document.getElementById('chkAll').addEventListener('change', function () {
+    var checked = this.checked;
+    document.querySelectorAll('.rule-chk').forEach(function (chk) {
+        chk.checked = checked;
+    });
+    updateBulkBar();
+});
+
+// ── Per-row checkbox ──────────────────────────────────────
+document.querySelectorAll('.rule-chk').forEach(function (chk) {
+    chk.addEventListener('change', function () {
+        // Sync select-all state
+        var all  = document.querySelectorAll('.rule-chk').length;
+        var chkd = document.querySelectorAll('.rule-chk:checked').length;
+        document.getElementById('chkAll').indeterminate = chkd > 0 && chkd < all;
+        document.getElementById('chkAll').checked = chkd === all;
+        updateBulkBar();
+    });
+});
+
+// ── Show/hide bulk action bar ─────────────────────────────
+function updateBulkBar() {
+    var n   = document.querySelectorAll('.rule-chk:checked').length;
+    var bar = document.getElementById('bulkBar');
+    bar.style.display = n > 0 ? 'block' : 'none';
+    document.getElementById('selCount').textContent = n + ' selected';
+}
+
+// ── Submit bulk form with chosen action ───────────────────
+function submitBulk(action) {
+    var n = document.querySelectorAll('.rule-chk:checked').length;
+    if (n === 0) return;
+    if (action === 'delete' && !confirm('Delete ' + n + ' rule(s)?')) return;
+    document.getElementById('bulkAction').value = action;
+    document.getElementById('bulkForm').submit();
+}
+
+// ── DataTables ────────────────────────────────────────────
 $(document).ready(function () {
+    // DataTables interferes with checkbox column — disable sorting on col 0.
     $('#rulesTable').DataTable({
-        order:      [[0, 'asc']],
-        pageLength: 25,
-        responsive: true
+        order:       [[1, 'asc']],
+        pageLength:  25,
+        responsive:  true,
+        columnDefs:  [{ orderable: false, targets: [0, 7] }]
     });
 });
 </script>
