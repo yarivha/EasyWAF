@@ -1073,7 +1073,7 @@ pub async fn post_rules_catalog(
 
 /// One row in the global rule list, including its owning policy.
 #[derive(Serialize)]
-pub struct AllRule {
+pub struct EditorRule {
     pub id:          i64,
     pub policy_name: String,
     pub name:        String,
@@ -1082,6 +1082,16 @@ pub struct AllRule {
     pub score:       i64,
     pub action:      String,
     pub enabled:     bool,
+}
+
+/// A group of rules sharing a category, for the collapsible editor view.
+#[derive(Serialize)]
+pub struct EditorGroup {
+    pub title:   String, // friendly category name, or "Custom / Manual"
+    pub code:    String, // CRS-style code, or "custom"
+    pub total:   usize,
+    pub enabled: usize,
+    pub rules:   Vec<EditorRule>,
 }
 
 /// Full detail of a single rule for the edit form.
@@ -1100,7 +1110,9 @@ pub struct RuleDetail {
 
 // ─── get_all_rules ───────────────────────────────────────
 
-/// Render the global rule list — every rule across every policy.
+/// Render the global rule list, grouped into collapsible category panels.
+/// Categories come from the rule files (via external_id); rules without a
+/// known external_id are placed in a "Custom / Manual" group at the end.
 pub async fn get_all_rules(
     State(state): State<AppState>,
     jar: SignedCookieJar,
@@ -1110,15 +1122,29 @@ pub async fn get_all_rules(
         None    => return Ok(Redirect::to("/login").into_response()),
     };
 
+    // Build external_id -> (code, title) from the rule files, and remember
+    // the category order so groups appear in a stable sequence.
+    let cats = read_catalog_categories(&HashSet::new())?;
+    let mut cat_of: HashMap<i64, (String, String)> = HashMap::new();
+    let mut order: Vec<(String, String)> = Vec::new();
+    for c in &cats {
+        order.push((c.code.clone(), c.title.clone()));
+        for r in &c.rules {
+            cat_of.insert(r.external_id, (c.code.clone(), c.title.clone()));
+        }
+    }
+
+    // Fetch every rule with its policy name and external_id.
     let rows = sqlx::query!(
-        "SELECT wr.id      as \"id!\",
-                p.name     as \"policy_name!\",
+        "SELECT wr.id          as \"id!\",
+                p.name         as \"policy_name!\",
                 wr.name,
                 wr.zone,
                 wr.pattern,
-                wr.score   as \"score!\",
+                wr.score       as \"score!\",
                 wr.action,
-                wr.enabled as \"enabled!: bool\"
+                wr.enabled     as \"enabled!: bool\",
+                wr.external_id
          FROM   waf_rules wr
          JOIN   policies  p ON p.id = wr.policy_id
          ORDER  BY p.name, wr.id"
@@ -1126,25 +1152,60 @@ pub async fn get_all_rules(
     .fetch_all(&state.db)
     .await?;
 
-    let rules: Vec<AllRule> = rows.into_iter().map(|r| AllRule {
-        id:          r.id,
-        policy_name: r.policy_name,
-        name:        r.name,
-        zone:        r.zone,
-        pattern:     r.pattern,
-        score:       r.score,
-        action:      r.action,
-        enabled:     r.enabled,
-    }).collect();
+    // Bucket rules by category code.
+    let mut buckets: HashMap<String, Vec<EditorRule>> = HashMap::new();
+    let custom_code = "custom".to_string();
 
-    let total    = rules.len();
-    let enabled  = rules.iter().filter(|r| r.enabled).count();
+    for r in rows {
+        let code = match r.external_id.and_then(|id| cat_of.get(&id)) {
+            Some((code, _)) => code.clone(),
+            None            => custom_code.clone(),
+        };
+        buckets.entry(code).or_default().push(EditorRule {
+            id:          r.id,
+            policy_name: r.policy_name,
+            name:        r.name,
+            zone:        r.zone,
+            pattern:     r.pattern,
+            score:       r.score,
+            action:      r.action,
+            enabled:     r.enabled,
+        });
+    }
+
+    // Assemble groups in catalog order, then the Custom group last.
+    let mut groups: Vec<EditorGroup> = Vec::new();
+    for (code, title) in &order {
+        if let Some(rules) = buckets.remove(code) {
+            let enabled = rules.iter().filter(|r| r.enabled).count();
+            groups.push(EditorGroup {
+                title:   title.clone(),
+                code:    code.clone(),
+                total:   rules.len(),
+                enabled,
+                rules,
+            });
+        }
+    }
+    if let Some(rules) = buckets.remove(&custom_code) {
+        let enabled = rules.iter().filter(|r| r.enabled).count();
+        groups.push(EditorGroup {
+            title:   "Custom / Manual".to_string(),
+            code:    custom_code.clone(),
+            total:   rules.len(),
+            enabled,
+            rules,
+        });
+    }
+
+    let total:   usize = groups.iter().map(|g| g.total).sum();
+    let enabled: usize = groups.iter().map(|g| g.enabled).sum();
 
     let mut ctx = Context::new();
     ctx.insert("username",      &session.username);
     ctx.insert("title",         "Rule Editor");
     ctx.insert("url",           "/rules");
-    ctx.insert("rules",         &rules);
+    ctx.insert("groups",        &groups);
     ctx.insert("total_rules",   &total);
     ctx.insert("enabled_rules", &enabled);
 

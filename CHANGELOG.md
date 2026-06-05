@@ -8,6 +8,17 @@ Version bumps and tags are created only after explicit approval.
 
 ## [Unreleased]
 
+### Changed
+- **Rule Editor is now grouped by category** (collapsible panels, like the
+  policy-creation page) instead of one flat table:
+  - Rules are bucketed by category via their `external_id` (SQL Injection,
+    XSS, LFI, RFI, RCE, PHP, Protocol, Scanners); hand-written rules with no
+    external_id go into a "Custom / Manual" group at the end
+  - Each panel header shows the category, code, and "N enabled / M rules"
+  - Panels collapsed by default; click to expand; Expand all / Collapse all
+  - Search filters rows across all groups and auto-expands while typing
+  - `get_all_rules` now returns `EditorGroup`/`EditorRule` grouped data
+
 ### Added
 - **Rule Editor** — a new top-level page under Security Policy (sidebar:
   Security Policy → Rule Editor, `/rules`) that lists every WAF rule across
