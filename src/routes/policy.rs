@@ -13,7 +13,7 @@ use axum::{
 };
 use axum_extra::extract::cookie::SignedCookieJar;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tera::Context;
 
 // ─── Models ──────────────────────────────────────────────
@@ -74,10 +74,16 @@ pub async fn get_policy_new(
         None    => return Ok(Redirect::to("/login").into_response()),
     };
 
+    // Load the full rule catalog with nothing pre-checked (new policy).
+    let catalog = crate::routes::rules::read_catalog_categories(&HashSet::new())?;
+    let total_available: usize = catalog.iter().map(|c| c.total).sum();
+
     let mut ctx = Context::new();
-    ctx.insert("username", &session.username);
-    ctx.insert("title",    "Create Policy");
-    ctx.insert("url",      "/policy");
+    ctx.insert("username",        &session.username);
+    ctx.insert("title",           "Create Policy");
+    ctx.insert("url",             "/policy");
+    ctx.insert("catalog",         &catalog);
+    ctx.insert("total_available", &total_available);
 
     Ok((jar, Html(state.tera.render("policy_create.html", &ctx)?)).into_response())
 }
@@ -103,14 +109,27 @@ pub async fn post_policy_create(
         .and_then(|s| s.parse().ok())
         .unwrap_or(10);
 
-    sqlx::query!(
+    let insert = sqlx::query!(
         "INSERT INTO policies (name, rule_engine, score_threshold) VALUES (?, ?, ?)",
         name, rule_engine, score_threshold,
     )
     .execute(&state.db)
     .await?;
 
-    flash_redirect("/policy", "success", &format!("Policy {} created successfully", name))
+    let policy_id = insert.last_insert_rowid();
+
+    // Insert any rules the user selected in the catalog (comma-separated ids).
+    let ids: HashSet<i64> = raw.get("ids")
+        .map(|s| s.split(',').filter_map(|p| p.trim().parse::<i64>().ok()).collect())
+        .unwrap_or_default();
+
+    let added = crate::routes::rules::add_rules_by_external_ids(&state, policy_id, &ids).await?;
+
+    flash_redirect(
+        "/policy",
+        "success",
+        &format!("Policy {} created with {} rule(s)", name, added),
+    )
 }
 
 // ─── get_policy_edit ─────────────────────────────────────

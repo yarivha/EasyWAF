@@ -1,12 +1,15 @@
 {% extends "layout_default.html" %}
 
 {% block content %}
-<div class="row">
-    <div class="col-lg-8">
-        <div class="panel panel-default">
-            <div class="panel-heading"><h4>Create Security Policy</h4></div>
-            <div class="panel-body">
-                <form method="post" action="/policy/create">
+<form method="post" action="/policy/create" id="policyForm" onsubmit="collectIds()">
+    <!-- Hidden field populated with checked rule external_ids on submit -->
+    <input type="hidden" name="ids" id="catalogIds" value="">
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="panel panel-default">
+                <div class="panel-heading"><h4>Create Security Policy</h4></div>
+                <div class="panel-body">
 
                     <div class="form-group">
                         <label>Policy Name</label>
@@ -33,14 +36,156 @@
                                value="10" min="1" max="1000" required>
                     </div>
 
-                    <button type="submit" class="btn btn-success">
-                        <i class="fa fa-save"></i> Create Policy
-                    </button>
-                    <a href="/policy" class="btn btn-default">Cancel</a>
-
-                </form>
+                </div>
             </div>
         </div>
     </div>
-</div>
+
+    <!-- ── Rule selection ─────────────────────────────────── -->
+    <div class="panel panel-default">
+        <div class="panel-heading" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+            <strong><i class="fa fa-book"></i> Select Rules</strong>
+            <span class="text-muted" style="font-size:12px">
+                <span id="selCount">0</span> of {{ total_available }} rules selected
+            </span>
+            <input type="text" class="form-control input-sm" id="ruleSearch"
+                   placeholder="Filter rules…" style="width:180px;margin-left:auto"
+                   oninput="filterRules()">
+            <button type="button" class="btn btn-default btn-sm" onclick="selectAll(true)">
+                <i class="fa fa-check-square-o"></i> All
+            </button>
+            <button type="button" class="btn btn-default btn-sm" onclick="selectAll(false)">
+                <i class="fa fa-square-o"></i> None
+            </button>
+        </div>
+        <div class="panel-body" style="padding:0">
+            <p class="text-muted" style="padding:10px 14px;margin:0;font-size:12px">
+                Optional — pick the rules that apply to your application now.
+                You can change the selection any time after creation.
+            </p>
+        </div>
+    </div>
+
+    {% for cat in catalog %}
+    <div class="panel panel-default">
+        <div class="panel-heading" style="display:flex;align-items:center;gap:8px">
+            <label style="margin:0;font-weight:bold;cursor:pointer">
+                <input type="checkbox" class="cat-master" data-cat="{{ cat.code }}">
+                {{ cat.title }}
+            </label>
+            <span class="label label-default">{{ cat.code }}</span>
+            <span class="text-muted" style="font-size:12px;margin-left:auto">
+                <span class="cat-count" data-cat="{{ cat.code }}">0</span> / {{ cat.total }} selected
+            </span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-condensed table-hover" style="font-size:12px;margin-bottom:0">
+                <tbody>
+                {% for r in cat.rules %}
+                    <tr class="rule-row"
+                        data-text="{{ r.name | lower }} {{ r.description | lower }} {{ r.zone | lower }}">
+                        <td style="width:34px;text-align:center;vertical-align:middle">
+                            <input type="checkbox" class="cat-chk"
+                                   data-cat="{{ cat.code }}" data-id="{{ r.external_id }}">
+                        </td>
+                        <td>
+                            <strong>{{ r.name }}</strong>
+                            {% if r.description %}
+                            <br><small class="text-muted">{{ r.description }}</small>
+                            {% endif %}
+                        </td>
+                        <td style="width:80px;vertical-align:middle">
+                            <span class="label label-default">{{ r.zone }}</span>
+                        </td>
+                        <td style="width:90px;vertical-align:middle;text-align:center">
+                            {% if r.action == "block" %}
+                                <span class="label label-danger">BLOCK</span>
+                            {% else %}
+                                <span class="label label-warning">+{{ r.score }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="vertical-align:middle">
+                            <code style="font-size:11px;word-break:break-all">{{ r.pattern }}</code>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- ── Submit bar ─────────────────────────────────────── -->
+    <div style="position:sticky;bottom:0;background:#fff;border-top:1px solid #ddd;
+                padding:10px 0;text-align:right">
+        <span class="text-muted" style="margin-right:10px;font-size:12px">
+            <span id="selCountBottom">0</span> of {{ total_available }} rules selected
+        </span>
+        <button type="submit" class="btn btn-success">
+            <i class="fa fa-save"></i> Create Policy
+        </button>
+        <a href="/policy" class="btn btn-default">Cancel</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Update all counters ───────────────────────────────────
+function updateCounts() {
+    var total = document.querySelectorAll('.cat-chk:checked').length;
+    document.getElementById('selCount').textContent = total;
+    document.getElementById('selCountBottom').textContent = total;
+
+    document.querySelectorAll('.cat-master').forEach(function (master) {
+        var cat   = master.dataset.cat;
+        var boxes = document.querySelectorAll('.cat-chk[data-cat="' + cat + '"]');
+        var chkd  = document.querySelectorAll('.cat-chk[data-cat="' + cat + '"]:checked');
+        document.querySelector('.cat-count[data-cat="' + cat + '"]').textContent = chkd.length;
+        master.checked       = boxes.length > 0 && chkd.length === boxes.length;
+        master.indeterminate = chkd.length > 0 && chkd.length < boxes.length;
+    });
+}
+
+// ── Per-category master checkbox ──────────────────────────
+document.querySelectorAll('.cat-master').forEach(function (master) {
+    master.addEventListener('change', function () {
+        var cat = this.dataset.cat;
+        var on  = this.checked;
+        document.querySelectorAll('.cat-chk[data-cat="' + cat + '"]').forEach(function (c) {
+            c.checked = on;
+        });
+        updateCounts();
+    });
+});
+
+// ── Individual rule checkbox ──────────────────────────────
+document.querySelectorAll('.cat-chk').forEach(function (chk) {
+    chk.addEventListener('change', updateCounts);
+});
+
+// ── Select / clear all ────────────────────────────────────
+function selectAll(on) {
+    document.querySelectorAll('.cat-chk').forEach(function (c) { c.checked = on; });
+    updateCounts();
+}
+
+// ── Search filter ─────────────────────────────────────────
+function filterRules() {
+    var q = document.getElementById('ruleSearch').value.toLowerCase();
+    document.querySelectorAll('.rule-row').forEach(function (row) {
+        row.style.display = row.dataset.text.indexOf(q) !== -1 ? '' : 'none';
+    });
+}
+
+// ── Collect checked ids before submit ─────────────────────
+function collectIds() {
+    var ids = Array.from(document.querySelectorAll('.cat-chk:checked'))
+                   .map(function (c) { return c.dataset.id; })
+                   .join(',');
+    document.getElementById('catalogIds').value = ids;
+}
+
+updateCounts();
+</script>
 {% endblock %}

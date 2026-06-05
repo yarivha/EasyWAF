@@ -9,6 +9,18 @@ Version bumps and tags are created only after explicit approval.
 ## [Unreleased]
 
 ### Added
+- **Select rules during policy creation** — the Create Policy form now embeds
+  the full Rule Library below the policy fields:
+  - All rules grouped by category with checkboxes, per-category select-all,
+    global select/clear, live counters, and a search filter
+  - On submit, the chosen rules are inserted into the newly-created policy in
+    one step; the success message reports how many rules were added
+  - Refactored `rules.rs`: `read_catalog_categories()` (pure file I/O) and
+    `add_rules_by_external_ids()` are now public and reused by both the
+    catalog sync and the policy-creation flow; `CatalogRule`/`CatalogCategory`
+    made public
+
+### Added
 - **Policy Manager now shows rules per policy** — the `/policy` list gained:
   - A **Rules** column: a clickable badge ("99 rules · 88 enabled") linking
     straight to the rules page, or a "Select rules" button for empty policies

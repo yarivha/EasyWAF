@@ -704,26 +704,27 @@ pub async fn post_import_rules(
 // are removed. This is the "pick the rules applicable to me" UI.
 
 /// One rule as shown in the catalog.
+/// `pub` so other route modules (e.g. policy creation) can render the catalog.
 #[derive(Serialize)]
-struct CatalogRule {
-    external_id: i64,
-    name:        String,
-    description: String,
-    zone:        String,
-    pattern:     String,
-    score:       i64,
-    action:      String,
-    added:       bool,   // already present in this policy
+pub struct CatalogRule {
+    pub external_id: i64,
+    pub name:        String,
+    pub description: String,
+    pub zone:        String,
+    pub pattern:     String,
+    pub score:       i64,
+    pub action:      String,
+    pub added:       bool,   // already present in this policy
 }
 
 /// A group of catalog rules sharing a source file / CRS category.
 #[derive(Serialize)]
-struct CatalogCategory {
-    title:       String, // friendly name, e.g. "SQL Injection"
-    code:        String, // numeric CRS-style prefix, e.g. "942"
-    total:       usize,
-    added_count: usize,
-    rules:       Vec<CatalogRule>,
+pub struct CatalogCategory {
+    pub title:       String, // friendly name, e.g. "SQL Injection"
+    pub code:        String, // numeric CRS-style prefix, e.g. "942"
+    pub total:       usize,
+    pub added_count: usize,
+    pub rules:       Vec<CatalogRule>,
 }
 
 /// Derive a friendly (code, title) pair from a rule file stem like
@@ -779,24 +780,16 @@ fn read_rule_defs() -> HashMap<i64, RuleFileDef> {
     map
 }
 
-/// Build the grouped catalog for display, marking which rules are already
-/// present in the given policy.
-async fn load_catalog(state: &AppState, policy_id: i64) -> Result<Vec<CatalogCategory>> {
+/// Read all rule files from disk and group them into catalog categories,
+/// marking each rule's `added` flag against the given set of external_ids.
+/// Pure file I/O — no database access — so it is reusable by any handler.
+/// Pass an empty set (e.g. for a brand-new policy) to get all rules unchecked.
+pub fn read_catalog_categories(existing: &HashSet<i64>) -> Result<Vec<CatalogCategory>> {
     let dir = std::path::Path::new("rules");
     let mut categories = Vec::new();
     if !dir.exists() {
         return Ok(categories);
     }
-
-    // Which external_ids are already imported into this policy?
-    let existing_rows = sqlx::query_scalar!(
-        "SELECT external_id as \"external_id!\" FROM waf_rules
-         WHERE policy_id = ? AND external_id IS NOT NULL",
-        policy_id
-    )
-    .fetch_all(&state.db)
-    .await?;
-    let existing: HashSet<i64> = existing_rows.into_iter().collect();
 
     // Collect and sort .toml files so categories appear in a stable order.
     let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
@@ -851,6 +844,76 @@ async fn load_catalog(state: &AppState, policy_id: i64) -> Result<Vec<CatalogCat
     }
 
     Ok(categories)
+}
+
+/// Build the grouped catalog for an existing policy, pre-checking the rules
+/// it already contains.
+async fn load_catalog(state: &AppState, policy_id: i64) -> Result<Vec<CatalogCategory>> {
+    // Which external_ids are already imported into this policy?
+    let existing_rows = sqlx::query_scalar!(
+        "SELECT external_id as \"external_id!\" FROM waf_rules
+         WHERE policy_id = ? AND external_id IS NOT NULL",
+        policy_id
+    )
+    .fetch_all(&state.db)
+    .await?;
+    let existing: HashSet<i64> = existing_rows.into_iter().collect();
+
+    read_catalog_categories(&existing)
+}
+
+/// Insert the rules identified by `ids` (external_ids) into the given policy,
+/// skipping any that are already present. Returns the number actually added.
+/// Used by both the catalog sync and the policy-creation flow.
+pub async fn add_rules_by_external_ids(
+    state:     &AppState,
+    policy_id: i64,
+    ids:       &HashSet<i64>,
+) -> Result<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let defs = read_rule_defs();
+    let mut added = 0usize;
+
+    for id in ids {
+        let def = match defs.get(id) {
+            Some(d) => d,
+            None    => continue, // unknown id — ignore
+        };
+
+        // Skip if already present in this policy.
+        let exists: i64 = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM waf_rules WHERE policy_id = ? AND external_id = ?",
+            policy_id, id
+        )
+        .fetch_one(&state.db)
+        .await?;
+        if exists > 0 {
+            continue;
+        }
+
+        let desc = def.description.as_deref().unwrap_or("");
+        sqlx::query!(
+            "INSERT INTO waf_rules
+             (policy_id, name, description, zone, pattern, score, action, external_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            policy_id,
+            def.name,
+            desc,
+            def.zone,
+            def.pattern,
+            def.score,
+            def.action,
+            def.id,
+        )
+        .execute(&state.db)
+        .await?;
+        added += 1;
+    }
+
+    Ok(added)
 }
 
 // ─── get_rules_catalog ───────────────────────────────────
