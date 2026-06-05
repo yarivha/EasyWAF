@@ -9,6 +9,16 @@ Version bumps and tags are created only after explicit approval.
 ## [Unreleased]
 
 ### Added
+- **Policy Manager now shows rules per policy** — the `/policy` list gained:
+  - A **Rules** column: a clickable badge ("99 rules · 88 enabled") linking
+    straight to the rules page, or a "Select rules" button for empty policies
+  - A **Threshold** column showing each policy's score threshold
+  - Rule Engine mode rendered as a coloured label (Enforcing / Detection only / Off)
+  - A quick "Manage Rules" list icon in the Actions column
+  - `fetch_policies` now LEFT JOINs `waf_rules` to compute per-policy
+    rule_count and enabled_count
+
+### Added
 - **Rule Library selection GUI** (`/policy/{name}/rules/catalog`) — browse every
   rule from the `rules/` directory and pick the ones applicable to you:
   - Rules grouped into category panels (SQL Injection, XSS, LFI, RFI, RCE,

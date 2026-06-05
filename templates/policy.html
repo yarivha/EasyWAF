@@ -25,6 +25,8 @@
                         <th></th>
                         <th>Policy Name</th>
                         <th>Rule Engine</th>
+                        <th>Rules</th>
+                        <th>Threshold</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -37,8 +39,35 @@
                             </a>
                         </td>
                         <td><a href="/policy/{{ pol.name }}/edit">{{ pol.name }}</a></td>
-                        <td>{{ pol.rule_engine }}</td>
                         <td>
+                            {% if pol.rule_engine == "On" %}
+                                <span class="label label-danger">Enforcing</span>
+                            {% elif pol.rule_engine == "DetectionOnly" %}
+                                <span class="label label-warning">Detection only</span>
+                            {% else %}
+                                <span class="label label-default">Off</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pol.rule_count > 0 %}
+                                <a href="/policy/{{ pol.name }}/rules">
+                                    <span class="badge">{{ pol.rule_count }} rules</span>
+                                </a>
+                                <small class="text-muted">({{ pol.enabled_count }} enabled)</small>
+                            {% else %}
+                                <a href="/policy/{{ pol.name }}/rules/catalog"
+                                   class="btn btn-xs btn-primary">
+                                    <i class="fa fa-book"></i> Select rules
+                                </a>
+                            {% endif %}
+                        </td>
+                        <td>{{ pol.score_threshold }}</td>
+                        <td style="white-space:nowrap">
+                            <a href="/policy/{{ pol.name }}/rules"
+                               class="btn btn-link" style="padding:0;margin-right:8px"
+                               title="Manage Rules">
+                                <i class="fa fa-list fa-2x"></i>
+                            </a>
                             <form method="post" action="/policy/{{ pol.name }}/delete"
                                   onsubmit="return confirm('Delete policy {{ pol.name }}?');"
                                   style="display:inline">

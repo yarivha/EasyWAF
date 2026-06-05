@@ -24,6 +24,10 @@ pub struct Policy {
     pub name:            String,
     pub rule_engine:     String,
     pub score_threshold: i64,
+    /// Total rules attached to this policy (0 if none yet).
+    pub rule_count:      i64,
+    /// How many of those rules are enabled.
+    pub enabled_count:   i64,
 }
 
 // ─── Forms ───────────────────────────────────────────────
@@ -180,9 +184,18 @@ pub async fn post_policy_delete(
 // ─── Helpers ─────────────────────────────────────────────
 
 async fn fetch_policies(state: &AppState) -> Result<Vec<Policy>> {
+    // LEFT JOIN so policies with no rules still appear, with counts of 0.
     let rows = sqlx::query!(
-        "SELECT id as \"id!\", name, rule_engine, score_threshold as \"score_threshold!\"
-         FROM policies ORDER BY name"
+        "SELECT p.id          as \"id!\",
+                p.name,
+                p.rule_engine,
+                p.score_threshold as \"score_threshold!\",
+                COUNT(wr.id)   as \"rule_count!\",
+                COALESCE(SUM(wr.enabled), 0) as \"enabled_count!\"
+         FROM   policies p
+         LEFT   JOIN waf_rules wr ON wr.policy_id = p.id
+         GROUP  BY p.id
+         ORDER  BY p.name"
     )
     .fetch_all(&state.db)
     .await?;
@@ -192,6 +205,8 @@ async fn fetch_policies(state: &AppState) -> Result<Vec<Policy>> {
         name:            r.name,
         rule_engine:     r.rule_engine,
         score_threshold: r.score_threshold,
+        rule_count:      r.rule_count,
+        enabled_count:   r.enabled_count,
     }).collect())
 }
 
@@ -210,6 +225,9 @@ async fn fetch_policy(state: &AppState, name: &str) -> Result<Policy> {
         name:            r.name,
         rule_engine:     r.rule_engine,
         score_threshold: r.score_threshold,
+        // Counts are not shown on the single-policy edit page.
+        rule_count:      0,
+        enabled_count:   0,
     })
 }
 
