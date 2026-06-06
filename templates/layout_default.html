@@ -6,12 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>EasyWAF</title>
 
-    <!-- Apply saved theme before paint to avoid a flash of the wrong theme -->
+    <!-- Apply saved theme before paint to avoid a flash of the wrong theme.
+         Preference may be 'auto' (follow OS), 'light' or 'dark'; 'auto'
+         resolves to the OS setting via prefers-color-scheme. -->
     <script>
         (function () {
             try {
-                var t = localStorage.getItem('easywaf-theme') || 'dark';
-                document.documentElement.setAttribute('data-theme', t);
+                var pref = localStorage.getItem('easywaf-theme') || 'auto';
+                var resolved = (pref === 'light' || pref === 'dark') ? pref
+                    : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', resolved);
             } catch (e) {
                 document.documentElement.setAttribute('data-theme', 'dark');
             }
@@ -31,7 +35,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Custom -->
-    <link rel="stylesheet" href="/static/css/easywaf.css?v=2">
+    <link rel="stylesheet" href="/static/css/easywaf.css?v=3">
 </head>
 <body>
 <div id="wrapper">
@@ -51,9 +55,9 @@
         <!-- Right menu — theme toggle -->
         <ul class="nav navbar-right navbar-top-links">
             <li>
-                <button id="themeToggle" type="button" onclick="toggleTheme()"
-                        title="Toggle light / dark mode">
-                    <i id="themeToggleIcon" class="fa fa-sun-o"></i>
+                <button id="themeToggle" type="button" onclick="cycleTheme()"
+                        title="Theme: Auto / Light / Dark">
+                    <i id="themeToggleIcon" class="fa fa-adjust"></i>
                 </button>
             </li>
         </ul>
@@ -169,7 +173,7 @@
 <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap.min.js"></script>
 <!-- Custom sidebar init -->
-<script src="/static/js/easywaf.js?v=2"></script>
+<script src="/static/js/easywaf.js?v=3"></script>
 
 {% block scripts %}{% endblock %}
 </body>

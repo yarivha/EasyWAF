@@ -8,6 +8,15 @@ Version bumps and tags are created only after explicit approval.
 
 ## [Unreleased]
 
+### Added
+- **Auto theme mode** — the navbar theme button now cycles
+  **Auto → Light → Dark**. "Auto" (the new default) follows the operating
+  system's light/dark setting via `prefers-color-scheme`, and updates live
+  if you change your OS theme while a page is open. The button icon reflects
+  the current preference (half-circle = Auto, sun = Light, moon = Dark).
+  Preference persisted in `localStorage`; resolved before paint in the
+  `<head>` so there is no flash. Asset version bumped to `v=3`.
+
 ### Fixed
 - **Theme toggle appeared not to work due to stale browser cache** — the
   `/static` files were served without a `Cache-Control` header, so browsers

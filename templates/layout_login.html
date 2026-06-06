@@ -6,12 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>EasyWAF — Login</title>
 
-    <!-- Apply saved theme before paint to avoid a flash of the wrong theme -->
+    <!-- Apply saved theme before paint to avoid a flash of the wrong theme.
+         Preference may be 'auto' (follow OS), 'light' or 'dark'. -->
     <script>
         (function () {
             try {
-                var t = localStorage.getItem('easywaf-theme') || 'dark';
-                document.documentElement.setAttribute('data-theme', t);
+                var pref = localStorage.getItem('easywaf-theme') || 'auto';
+                var resolved = (pref === 'light' || pref === 'dark') ? pref
+                    : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', resolved);
             } catch (e) {
                 document.documentElement.setAttribute('data-theme', 'dark');
             }
@@ -27,7 +30,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Custom -->
-    <link rel="stylesheet" href="/static/css/easywaf.css?v=2">
+    <link rel="stylesheet" href="/static/css/easywaf.css?v=3">
 
     <style>
         .login-panel { margin-top: 10%; }
