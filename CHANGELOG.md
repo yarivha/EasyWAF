@@ -8,6 +8,18 @@ Version bumps and tags are created only after explicit approval.
 
 ## [Unreleased]
 
+### Added
+- **Create custom rules from the Rule Editor** — an "Add Custom Rule" button
+  on the Rule Editor page opens a form (`/rules/new`) to define a rule and
+  choose which policy it belongs to:
+  - Fields: target policy (dropdown), name, description, zone, pattern,
+    score, action, with a live regex tester
+  - Server-side regex validation; rejects invalid patterns back to the form
+  - Created rules have no `external_id`, so they appear in the
+    "Custom / Manual" group of the Rule Editor
+  - Friendly warning + link when no policies exist yet
+  - `GET /rules/new` and `POST /rules/create` routes
+
 ### Changed
 - **Rule Editor is now grouped by category** (collapsible panels, like the
   policy-creation page) instead of one flat table:

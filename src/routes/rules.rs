@@ -1344,3 +1344,93 @@ pub async fn post_rule_delete_global(
 
     Ok(Redirect::to("/rules").into_response())
 }
+
+// ─── Custom rule creation (global) ───────────────────────
+
+/// Form for creating a custom rule from the Rule Editor.
+/// Unlike the per-policy create form, this one chooses the target policy.
+#[derive(Deserialize)]
+pub struct CustomRuleForm {
+    pub policy:      String,          // target policy name
+    pub name:        String,
+    pub description: Option<String>,
+    pub zone:        String,
+    pub pattern:     String,
+    pub score:       Option<String>,
+    pub action:      String,
+}
+
+// ─── get_custom_rule_new ─────────────────────────────────
+
+/// Render the "create custom rule" form, with a policy picker.
+pub async fn get_custom_rule_new(
+    State(state): State<AppState>,
+    jar: SignedCookieJar,
+) -> Result<Response> {
+    let session = match get_session(&jar) {
+        Some(s) => s,
+        None    => return Ok(Redirect::to("/login").into_response()),
+    };
+
+    // Policy names for the dropdown.
+    let policies = sqlx::query_scalar!("SELECT name FROM policies ORDER BY name")
+        .fetch_all(&state.db)
+        .await?;
+
+    let mut ctx = Context::new();
+    ctx.insert("username", &session.username);
+    ctx.insert("title",    "Add Custom Rule");
+    ctx.insert("url",      "/rules");
+    ctx.insert("policies", &policies);
+
+    Ok((jar, Html(state.tera.render("rule_custom_new.html", &ctx)?)).into_response())
+}
+
+// ─── post_custom_rule_create ─────────────────────────────
+
+/// Create a custom rule (no external_id) in the chosen policy.
+/// Validates the regex and that the target policy exists.
+pub async fn post_custom_rule_create(
+    State(state): State<AppState>,
+    jar: SignedCookieJar,
+    Form(form): Form<CustomRuleForm>,
+) -> Result<Response> {
+    if get_session(&jar).is_none() {
+        return Ok(Redirect::to("/login").into_response());
+    }
+
+    // Reject an invalid regex before saving.
+    if regex::Regex::new(&form.pattern).is_err() {
+        return Ok(Redirect::to("/rules/new?error=Invalid+regex+pattern").into_response());
+    }
+
+    // Resolve the target policy by name.
+    let policy_id: i64 = sqlx::query_scalar!(
+        "SELECT id as \"id!\" FROM policies WHERE name = ?",
+        form.policy
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Policy '{}' not found", form.policy)))?;
+
+    let description = form.description.unwrap_or_default();
+    let score: i64  = form.score.as_deref().and_then(|s| s.parse().ok()).unwrap_or(5);
+
+    // external_id is left NULL → the rule appears in the "Custom / Manual" group.
+    sqlx::query!(
+        "INSERT INTO waf_rules
+         (policy_id, name, description, zone, pattern, score, action)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        policy_id,
+        form.name,
+        description,
+        form.zone,
+        form.pattern,
+        score,
+        form.action,
+    )
+    .execute(&state.db)
+    .await?;
+
+    Ok(Redirect::to("/rules").into_response())
+}
