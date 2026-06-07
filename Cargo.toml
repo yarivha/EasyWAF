@@ -62,3 +62,42 @@ bytes = "1.6"
 
 # WAF pattern matching — uses a safe automata engine (no ReDoS risk)
 regex = "1"
+
+# ─── Debian package (.deb) — cargo-deb ──────────────────────
+# Binary → /usr/bin; runtime assets → /opt/easywaf (the systemd unit sets
+# WorkingDirectory there). Asset source paths under target/release are
+# auto-rewritten to the per-target dir when building with --target.
+[package.metadata.deb]
+maintainer = "Yariv Hakim"
+copyright = "2025, Yariv Hakim"
+section = "net"
+priority = "optional"
+depends = "libc6"
+extended-description = """\
+EasyWAF is a self-contained Web Application Firewall and HTTP reverse proxy.
+It hosts multiple virtual sites, inspects traffic through a rule pipeline
+(OWASP-style WAF rules, GeoIP), and ships a web management GUI."""
+assets = [
+    ["target/release/easywaf",        "/usr/bin/easywaf",                       "755"],
+    ["templates/*.html",              "/opt/easywaf/templates/",                "644"],
+    ["static/css/easywaf.css",        "/opt/easywaf/static/css/easywaf.css",    "644"],
+    ["static/js/easywaf.js",          "/opt/easywaf/static/js/easywaf.js",      "644"],
+    ["rules/*.toml",                  "/opt/easywaf/rules/",                     "644"],
+    ["config.toml",                   "/opt/easywaf/config.toml",               "644"],
+    ["packaging/easywaf.service",     "/lib/systemd/system/easywaf.service",    "644"],
+    ["CHANGELOG.md",                  "/usr/share/doc/easywaf/CHANGELOG.md",    "644"],
+]
+
+# ─── RPM package (.rpm) — cargo-generate-rpm ────────────────
+[package.metadata.generate-rpm]
+summary = "Self-contained Web Application Firewall and reverse proxy"
+assets = [
+    { source = "target/release/easywaf",     dest = "/usr/bin/easywaf",                    mode = "755" },
+    { source = "templates/*.html",           dest = "/opt/easywaf/templates/",             mode = "644" },
+    { source = "static/css/easywaf.css",     dest = "/opt/easywaf/static/css/easywaf.css", mode = "644" },
+    { source = "static/js/easywaf.js",       dest = "/opt/easywaf/static/js/easywaf.js",   mode = "644" },
+    { source = "rules/*.toml",               dest = "/opt/easywaf/rules/",                 mode = "644" },
+    { source = "config.toml",                dest = "/opt/easywaf/config.toml",            mode = "644" },
+    { source = "packaging/easywaf.service",  dest = "/usr/lib/systemd/system/easywaf.service", mode = "644" },
+    { source = "CHANGELOG.md",               dest = "/usr/share/doc/easywaf/CHANGELOG.md", mode = "644" },
+]

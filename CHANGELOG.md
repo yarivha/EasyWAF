@@ -9,6 +9,22 @@ Version bumps and tags are created only after explicit approval.
 ## [Unreleased]
 
 ### Added
+- **Release CI pipeline** (`.github/workflows/release.yml`) — triggered by
+  pushing a `v*` tag:
+  - Builds the release binary for **x86_64** and **arm64 (aarch64)**
+    (cross-compiled with the aarch64 GCC toolchain; sqlx schema built in CI
+    from the migration files)
+  - Packages each architecture as both **`.deb`** and **`.rpm`**
+    (cargo-deb / cargo-generate-rpm) — binary to `/usr/bin/easywaf`, runtime
+    assets to `/opt/easywaf`, plus a systemd unit
+  - Creates a **GitHub Release** with all four packages attached and the
+    body taken from the matching `CHANGELOG.md` section (falls back to
+    `[Unreleased]`)
+- Packaging metadata in `Cargo.toml` (`[package.metadata.deb]` /
+  `[package.metadata.generate-rpm]`) and a `packaging/easywaf.service`
+  systemd unit (WorkingDirectory `/opt/easywaf`, `CAP_NET_BIND_SERVICE`)
+
+### Added
 - **Auto theme mode** — the navbar theme button now cycles
   **Auto → Light → Dark**. "Auto" (the new default) follows the operating
   system's light/dark setting via `prefers-color-scheme`, and updates live

@@ -1,0 +1,17 @@
+[Unit]
+Description=EasyWAF — self-contained Web Application Firewall and reverse proxy
+After=network.target
+
+[Service]
+Type=simple
+# EasyWAF reads templates/, static/, rules/ and config.toml relative to its
+# working directory, and creates easywaf.db there on first run.
+WorkingDirectory=/opt/easywaf
+ExecStart=/usr/bin/easywaf
+Restart=on-failure
+RestartSec=3
+# Allow binding privileged ports (e.g. a site on port 80) without full root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
